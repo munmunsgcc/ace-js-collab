@@ -23,8 +23,8 @@ http.listen(port, () => {
   console.log(`Listening to port: ${port}`);
 });
 
-// 1. Update cursor whenever the cursor was moved.
-// 2. Remove cursor whenever the user disconnected.
+// 1. Pipe to a terminal
+// 2. Reload previous session's content
 
 io.on("connection", socket => {
   socket.on("message", data => {
@@ -37,10 +37,19 @@ io.on("connection", socket => {
         break;
       case "EDITOR_UPDATED":
         updateCursor({ ...payload });
-        updateEditor({ ...payload });
+        io.emit("message", {
+          type: "UPDATE_EDITOR",
+          payload
+        });
         break;
       case "CURSOR_UPDATED":
         updateCursor({ ...payload });
+        break;
+      case "SELECTION_UPDATED":
+        io.emit("message", {
+          type: "UPDATE_SELECTION",
+          payload
+        });
         break;
     }
   });
@@ -70,13 +79,6 @@ function initUser({ socket, users, payload: { user, cursor }, cursors }) {
   }
 
   socket.disconnect();
-}
-
-function updateEditor({ lines, user }) {
-  io.emit("message", {
-    type: "UPDATE_EDITOR",
-    payload: { user, lines }
-  });
 }
 
 function updateCursor({ cursor, user }) {

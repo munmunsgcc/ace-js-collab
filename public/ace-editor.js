@@ -3,6 +3,9 @@ const session = editor.getSession();
 const doc = session.getDocument();
 const selection = session.selection;
 const socket = io();
+const AceRange = ace.require("ace/range").Range;
+const aceRangeUtil = AceCollabExt.AceRangeUtil;
+const customSelection = new AceCollabExt.AceMultiSelectionManager(session);
 const customCursor = new AceCollabExt.AceMultiCursorManager(session);
 
 editor.setTheme("ace/theme/monokai");
@@ -12,7 +15,7 @@ switch (getUser()) {
     alert("No user set. Please set ?user={XXX}");
     break;
   default:
-    selection.on("changeCursor", e => {
+    selection.on("changeCursor", () => {
       const position = editor.getCursorPosition();
       selection.moveCursorTo(position.row, position.column, true);
       socket.emit("message", {
@@ -22,6 +25,33 @@ switch (getUser()) {
           cursor: position
         }
       });
+    });
+
+    selection.on("changeSelection", e => {
+      const rangesJson = aceRangeUtil.toJson(editor.selection.getAllRanges());
+      const ranges = aceRangeUtil.fromJson(rangesJson);
+      let newRanges = [...ranges];
+
+      newRanges.forEach((range, index) => {
+        // For some reason, even clicks are registered as having a "selection"
+        // So we gotta filter out selections that did not select a character.
+        if (
+          range.start.row === range.end.row &&
+          range.start.column === range.end.column
+        ) {
+          ranges.splice(index, 1);
+        }
+      });
+
+      if (ranges.length > 0) {
+        socket.emit("message", {
+          type: "SELECTION_UPDATED",
+          payload: {
+            user: getUser(),
+            ranges
+          }
+        });
+      }
     });
 
     editorUpdated({ state: true, callback: editorUpdatedCallback });
@@ -36,8 +66,11 @@ switch (getUser()) {
         case "UPDATE_CURSOR":
           updateCursor({ ...payload });
           break;
+        case "UPDATE_SELECTION":
+          updateSelection({ ...payload });
+          break;
         case "USER_DISCONNECTED":
-          removeCursor({ ...payload });
+          removeOtherUser({ ...payload });
           break;
         default:
           break;
@@ -56,12 +89,41 @@ function getUser() {
   return param.get("user");
 }
 
-function removeCursor({ user }) {
+function setColor() {}
+
+function updateSelection({ user, ranges }) {
   if (user === getUser()) {
     return;
   }
 
-  customCursor.removeCursor(user);
+  let newRanges = ranges.map(range => {
+    return new AceRange(
+      range.start.row,
+      range.start.column,
+      range.end.row,
+      range.end.column
+    );
+  });
+
+  if (Object.keys(customSelection._selections).length === 0) {
+    customSelection.addSelection("otherUser", user, "orange", []);
+  }
+
+  customSelection.setSelection("otherUser", newRanges);
+}
+
+function removeOtherUser({ user }) {
+  if (user === getUser()) {
+    return;
+  }
+
+  if (Object.keys(customCursor._cursors).length > 0) {
+    customCursor.removeCursor("otherUser");
+  }
+
+  if (Object.keys(customSelection._selections).length > 0) {
+    customSelection.removeSelection("otherUser");
+  }
 }
 
 function editorUpdatedCallback(lines) {
@@ -95,8 +157,8 @@ function updateCursor({ user, cursor }) {
   }
 
   if (Object.keys(customCursor._cursors).length === 0) {
-    customCursor.addCursor(user, user, "orange", 0);
+    customCursor.addCursor("otherUser", user, "orange", 0);
   }
 
-  customCursor.setCursor(user, cursor);
+  customCursor.setCursor("otherUser", cursor);
 }
