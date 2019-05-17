@@ -1,9 +1,9 @@
 const editor = ace.edit("editor");
 const session = editor.getSession();
 const doc = session.getDocument();
+const selection = session.selection;
 const socket = io();
 const customCursor = new AceCollabExt.AceMultiCursorManager(session);
-let initCustomCursor = { init: false };
 
 editor.setTheme("ace/theme/monokai");
 
@@ -12,9 +12,16 @@ switch (getUser()) {
     alert("No user set. Please set ?user={XXX}");
     break;
   default:
-    session.selection.on("changeCursor", e => {
+    selection.on("changeCursor", e => {
       const position = editor.getCursorPosition();
-      session.selection.moveCursorTo(position.row, position.column, true);
+      selection.moveCursorTo(position.row, position.column, true);
+      socket.emit("message", {
+        type: "CURSOR_UPDATED",
+        payload: {
+          user: getUser(),
+          cursor: position
+        }
+      });
     });
 
     editorUpdated({ state: true, callback: editorUpdatedCallback });
@@ -27,7 +34,10 @@ switch (getUser()) {
           updateEditor({ ...payload });
           break;
         case "UPDATE_CURSOR":
-          updateCursor({ customCursor, payload, initCustomCursor });
+          updateCursor({ ...payload });
+          break;
+        case "USER_DISCONNECTED":
+          removeCursor({ ...payload });
           break;
         default:
           break;
@@ -36,7 +46,7 @@ switch (getUser()) {
 
     socket.emit("message", {
       type: "INIT_USER",
-      payload: { position: editor.selection.getCursor(), user: getUser() }
+      payload: { cursor: editor.selection.getCursor(), user: getUser() }
     });
     break;
 }
@@ -44,6 +54,14 @@ switch (getUser()) {
 function getUser() {
   const param = new URLSearchParams(window.location.search);
   return param.get("user");
+}
+
+function removeCursor({ user }) {
+  if (user === getUser()) {
+    return;
+  }
+
+  customCursor.removeCursor(user);
 }
 
 function editorUpdatedCallback(lines) {
@@ -71,17 +89,14 @@ function updateEditor({ user, lines }) {
   editorUpdated({ state: true, callback: editorUpdatedCallback });
 }
 
-function updateCursor({ customCursor, payload, initCustomCursor }) {
-  const { user, cursor } = payload;
-
+function updateCursor({ user, cursor }) {
   if (user === getUser()) {
     return;
   }
 
-  if (initCustomCursor.init === false) {
-    customCursor.addCursor("other", user, "orange", 0);
-    initCustomCursor.init = true;
+  if (Object.keys(customCursor._cursors).length === 0) {
+    customCursor.addCursor(user, user, "orange", 0);
   }
 
-  customCursor.setCursor("other", cursor);
+  customCursor.setCursor(user, cursor);
 }

@@ -39,6 +39,9 @@ io.on("connection", socket => {
         updateCursor({ ...payload });
         updateEditor({ ...payload });
         break;
+      case "CURSOR_UPDATED":
+        updateCursor({ ...payload });
+        break;
     }
   });
 
@@ -49,15 +52,19 @@ io.on("connection", socket => {
       if (newUsers[user] === socket) {
         console.log(`${user} has disconnected`);
         delete users[user];
+        io.emit("message", {
+          type: "USER_DISCONNECTED",
+          payload: { user }
+        });
       }
     });
   });
 });
 
-function initUser({ socket, users, payload: { user, position }, cursors }) {
+function initUser({ socket, users, payload: { user, cursor }, cursors }) {
   if (Object.keys(users).length <= 2) {
     users[user] = socket;
-    cursors[user] = position;
+    cursors[user] = cursor;
     console.log(`${user} has connected`);
     return;
   }
@@ -79,7 +86,7 @@ function updateCursor({ cursor, user }) {
   });
 }
 
-function updateAllCursors({ cursors, users, io, user }) {
+function updateAllCursors({ cursors, users, user }) {
   let newUsers;
   let otherUser;
 
